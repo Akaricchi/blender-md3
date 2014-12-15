@@ -23,6 +23,13 @@ import struct
 from math import atan2, acos, pi, sqrt
 import re
 
+def mesh_triangulate(me):
+    import bmesh
+    bm = bmesh.new()
+    bm.from_mesh(me)
+    bmesh.ops.triangulate(bm, faces=bm.faces)
+    bm.to_mesh(me)
+    bm.free()
 
 nums = re.compile(r'\.\d{3}$')
 def prepare_name(name):
@@ -178,6 +185,7 @@ def surface_start_frame(ctx, i, file):
     obj = bpy.context.scene.objects.active
     ctx['mesh_matrix'] = obj.matrix_world
     ctx['mesh'] = obj.to_mesh(bpy.context.scene, True, 'PREVIEW')
+    mesh_triangulate(ctx['mesh'])
     ctx['mesh'].calc_normals_split()
 
     ctx['mesh_vco'][i] = ctx['mesh_vco'].get(i, [])
@@ -263,14 +271,14 @@ def write_surface_vert(ctx, frame, i, file):
     n = encode_normal(ctx['mesh'].loops[loop_id].normal)
     write_struct_to_file(file, '<hhh2s', (x, y, z, n))
 
-
 def write_surface(ctx, i, file):
     surfaceOffset = file.tell()
 
     obj = bpy.context.scene.objects[ctx['surfNames'][i]]
     bpy.context.scene.objects.active = obj
-    bpy.ops.object.modifier_add(type='TRIANGULATE')  # no 4-gons or n-gons
+    
     ctx['mesh'] = obj.to_mesh(bpy.context.scene, True, 'PREVIEW')
+    mesh_triangulate(ctx['mesh'])
 
     ctx['mesh'].calc_normals_split()
 
@@ -294,6 +302,7 @@ def write_surface(ctx, i, file):
         ctx['modelFrames'],  # nFrames
         nShaders, nVerts, nTris
     ))
+
     write_delayed(ctx, file, 'surf_offTris', '<i', (0,))
     write_delayed(ctx, file, 'surf_offShaders', '<i', (0,))
     write_delayed(ctx, file, 'surf_offST', '<i', (0,))
@@ -313,9 +322,6 @@ def write_surface(ctx, i, file):
 
     write_nm_items(ctx, file, ctx['modelFrames'], nVerts, write_surface_vert, surface_start_frame, surface_end_frame)
     resolve_delayed(ctx, file, 'surf_offEnd', (file.tell() - surfaceOffset,))
-
-    # release here, to_mesh used for every frame
-    bpy.ops.object.modifier_remove(modifier=obj.modifiers[-1].name)
 
     print('Surface {}: nVerts={} nTris={} nShaders={}'.format(i, nVerts, nTris, nShaders))
 
